@@ -1,0 +1,43 @@
+name: Sync upstream
+
+on:
+  schedule:
+    # 07:15 Asia/Jakarta (UTC+7), every day.
+    - cron: '15 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync ${{ matrix.branch }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ['master', '20.0', '19.0', '18.0']
+    env:
+      GH_TOKEN: ${{ github.token }}
+      FORK_REPOSITORY: ${{ github.repository }}
+      SYNC_BRANCH: ${{ matrix.branch }}
+    steps:
+      - name: Update branch from odoo/odoo
+        shell: bash
+        run: |
+          set -euo pipefail
+          upstream_sha=$(gh api "repos/odoo/odoo/git/ref/heads/$SYNC_BRANCH" --jq '.object.sha')
+          fork_sha=$(gh api "repos/$FORK_REPOSITORY/git/ref/heads/$SYNC_BRANCH" --jq '.object.sha')
+          gh api "repos/$FORK_REPOSITORY/git/refs/heads/$SYNC_BRANCH" \
+            --method PATCH -f "sha=$upstream_sha" -F force=false --silent
+          if [[ "$fork_sha" == "$upstream_sha" ]]; then
+            echo "$SYNC_BRANCH is already up to date."
+          else
+            echo "$SYNC_BRANCH updated to $upstream_sha."
+          fi
+          printf '### %s\n\nUpstream commit: `%s`\n' "$SYNC_BRANCH" "$upstream_sha" >> "$GITHUB_STEP_SUMMARY"
